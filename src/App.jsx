@@ -317,10 +317,17 @@ function App() {
   // Firebase campaign loading status.
   const [campaignLoading, setCampaignLoading] = useState(true)
   const [campaignLoaded, setCampaignLoaded] = useState(false)
+  const [campaignUserUid, setCampaignUserUid] = useState(null)
 
   // Check whether a player is signed in.
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      console.log (
+        'Authenticated account:',
+        currentUser?.email,
+        currentUser?.uid
+      )
+
       setUser(currentUser)
       setAuthLoading(false)
     })
@@ -391,110 +398,151 @@ function App() {
   const [transferDestination, setTransferDestination] = useState('')
   const [countryTransferAmount, setCountryTransferAmount] = useState(1)
 
-  // Load the player's saved campaign from Firestore.
+  // Load the signed-in player's saved campaign from Firestore.
   useEffect(() => {
 
-    async function loadCampaign() {
+  let isCurrent = true
 
-      if (!user) {
+  async function loadCampaign() {
+
+    // Start loading and prevent autosaving until loading finishes.
+    setCampaignLoading(true)
+    setCampaignLoaded(false)
+    setCampaignUserUid(null)
+
+    // Reset campaign information before loading another account.
+    setSelectedCountry('')
+    setGameCountries([])
+    setPlayers([])
+    setTurnOrder([])
+    setCurrentTurnIndex(0)
+    setRound(1)
+    setFastForward(false)
+    setReinforcementsToAllocate(0)
+    setSelectedReinforcementCountry('')
+    setGameLog([])
+    setSelectedAttackOrigin('')
+    setSelectedAttackTarget('')
+    setActiveBattle(null)
+    setAttackingSoldiers(0)
+    setDefendingSoldiers(0)
+    setOriginalDefenders(0)
+    setLastBattleRound(null)
+    setPendingConquest(null)
+    setTransferAmount(0)
+    setTransferSource('')
+    setTransferDestination('')
+    setCountryTransferAmount(1)
+    setShowSetup(false)
+
+    processedReinforcements.current = null
+
+    // If nobody is signed in, stop here.
+    if (!user) {
+      if (isCurrent) {
         setCampaignLoading(false)
-        setCampaignLoaded(false)
-        return
       }
+      return
+    }
 
-      setCampaignLoading(true)
-      setCampaignLoaded(false)
+    try {
 
-      try {
+      // Retrieve only this user's saved campaign.
+      const campaignRef = doc(
+        db,
+        'users',
+        user.uid,
+        'games',
+        'currentCampaign'
+      )
 
-        // Identify this player's saved campaign.
-        const campaignRef = doc(
-          db,
-          'users',
-          user.uid,
-          'games',
-          'currentCampaign'
+      const campaignSnapshot = await getDoc(campaignRef)
+
+      // Do not apply results from an account that has since changed.
+      if (!isCurrent) return
+
+      if (campaignSnapshot.exists()) {
+
+        const savedCampaign = campaignSnapshot.data()
+
+        setSelectedCountry(savedCampaign.selectedCountry ?? '')
+        setGameCountries(savedCampaign.gameCountries ?? [])
+        setPlayers(savedCampaign.players ?? [])
+        setTurnOrder(savedCampaign.turnOrder ?? [])
+        setCurrentTurnIndex(savedCampaign.currentTurnIndex ?? 0)
+        setRound(savedCampaign.round ?? 1)
+        setFastForward(savedCampaign.fastForward ?? false)
+
+        setReinforcementsToAllocate(
+          savedCampaign.reinforcementsToAllocate ?? 0
         )
 
-        // Retrieve the saved campaign.
-        const campaignSnapshot = await getDoc(campaignRef)
+        setSelectedReinforcementCountry(
+          savedCampaign.selectedReinforcementCountry ?? ''
+        )
 
-        // Restore the campaign if a saved game exists.
-        if (campaignSnapshot.exists()) {
+        setGameLog(savedCampaign.gameLog ?? [])
+        setSelectedAttackOrigin(savedCampaign.selectedAttackOrigin ?? '')
+        setSelectedAttackTarget(savedCampaign.selectedAttackTarget ?? '')
+        setActiveBattle(savedCampaign.activeBattle ?? null)
+        setAttackingSoldiers(savedCampaign.attackingSoldiers ?? 0)
+        setDefendingSoldiers(savedCampaign.defendingSoldiers ?? 0)
+        setOriginalDefenders(savedCampaign.originalDefenders ?? 0)
+        setLastBattleRound(savedCampaign.lastBattleRound ?? null)
+        setPendingConquest(savedCampaign.pendingConquest ?? null)
+        setTransferAmount(savedCampaign.transferAmount ?? 0)
+        setTransferSource(savedCampaign.transferSource ?? '')
+        setTransferDestination(savedCampaign.transferDestination ?? '')
+        setCountryTransferAmount(savedCampaign.countryTransferAmount ?? 1)
+        setShowSetup(savedCampaign.showSetup ?? false)
 
-          const savedCampaign = campaignSnapshot.data()
+        processedReinforcements.current =
+          savedCampaign.processedReinforcements ?? null
 
-          setSelectedCountry(savedCampaign.selectedCountry ?? '')
-          setGameCountries(savedCampaign.gameCountries ?? [])
-          setPlayers(savedCampaign.players ?? [])
-          setTurnOrder(savedCampaign.turnOrder ?? [])
-          setCurrentTurnIndex(savedCampaign.currentTurnIndex ?? 0)
-          setRound(savedCampaign.round ?? 1)
-          setFastForward(savedCampaign.fastForward ?? false)
+        console.log('Saved campaign restored for:', user.email)
 
-          setReinforcementsToAllocate(
-            savedCampaign.reinforcementsToAllocate ?? 0
-          )
+      } else {
 
-          setSelectedReinforcementCountry(
-            savedCampaign.selectedReinforcementCountry ?? ''
-          )
+        console.log('No saved campaign found for:', user.email)
 
-          setGameLog(savedCampaign.gameLog ?? [])
+      }
 
-          setSelectedAttackOrigin(
-            savedCampaign.selectedAttackOrigin ?? ''
-          )
+      // Confirm that the loaded campaign belongs to this account.
+      setCampaignUserUid(user.uid)
 
-          setSelectedAttackTarget(
-            savedCampaign.selectedAttackTarget ?? ''
-          )
+    } catch (error) {
 
-          setActiveBattle(savedCampaign.activeBattle ?? null)
-          setAttackingSoldiers(savedCampaign.attackingSoldiers ?? 0)
-          setDefendingSoldiers(savedCampaign.defendingSoldiers ?? 0)
-          setOriginalDefenders(savedCampaign.originalDefenders ?? 0)
-          setLastBattleRound(savedCampaign.lastBattleRound ?? null)
-          setPendingConquest(savedCampaign.pendingConquest ?? null)
-          setTransferAmount(savedCampaign.transferAmount ?? 0)
+      console.error('Error loading campaign:', error)
 
-          setTransferSource(savedCampaign.transferSource ?? '')
-          setTransferDestination(savedCampaign.transferDestination ?? '')
+    } finally {
 
-          setCountryTransferAmount(
-            savedCampaign.countryTransferAmount ?? 1
-          )
-
-          setShowSetup(savedCampaign.showSetup ?? false)
-
-          // Restore the reinforcement tracking information.
-          processedReinforcements.current = 
-            savedCampaign.processedReinforcements ?? null
-
-        }
-
-        console.log('Campaign loading completed.')
-
-      } catch (error) {
-
-        console.error('Error loading campaign:', error)
-
-      } finally {
-
+      if (isCurrent) {
         setCampaignLoading(false)
         setCampaignLoaded(true)
       }
+
     }
+  }
 
-    loadCampaign()
+  loadCampaign()
 
-    }, [user])
+  // Prevent an older account's loading operation from updating state.
+  return () => {
+    isCurrent = false
+  }
+}, [user])
+  
 
     // Automatically save the player's campaign to Firestore.
     useEffect(() => {
       async function saveCampaign() {
         // Do not save until a user is signed in and loading is complete.
-        if (!user || !campaignLoaded || campaignLoading) {
+        if (
+          !user ||
+          !campaignLoaded ||
+          campaignLoading ||
+          campaignUserUid !== user.uid
+        ) {
           return
         }
 
@@ -546,6 +594,7 @@ function App() {
       user,
       campaignLoaded,
       campaignLoading,
+      campaignUserUid,
       selectedCountry,
       gameCountries,
       players,
@@ -1748,7 +1797,7 @@ function App() {
             )}
           </div>
          </div>
-         
+
           <div className="country-grid">
             {gameCountries.map((country) => (
               <article className="country-card" key={country.name}>
